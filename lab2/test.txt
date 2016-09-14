@@ -1,0 +1,6 @@
+testfile
+with
+only
+a
+couple
+bytes
