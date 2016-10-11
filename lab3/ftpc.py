@@ -1,76 +1,102 @@
 '''
     CSE 3461: Lab 2
     Author: Zach Peugh
-    Date: 9/14/2016
+    Date: 10/10/2016
     Description: Client script which connects to a socket of a
                  given host on a specific port, and then transfers
-                 the file to the server directory.
+                 the file via UPD protocol to the server directory.
 '''
 
-
-
-from socket import *
+import socket
 import sys
 import os
+import time
 
+FIRST_SEG_SIZE = 4      # The size in bytes of the file size integer
+SECOND_SEG_SIZE = 20    # The size in bytes of the file name string
+IP_SIZE = 8             # The size in bytes of the IP server host name
+PORT_SIZE = 2           # The size in bytes of the server port number
+FLAG_SIZE = 1           # The size in bytes of the flag
 CHUNK_SIZE = 1000       # The size in bytes of chunks of file to receive at a time
-HEADER_SIZE = 4         # The size in bytes of the file size integer
-FILE_NAME_SIZE = 20     # The size in bytes of the file name string
-SERVER_RESP_SIZE = 12   # The size in bytes of the server response
-OUTPUT_DIR = "output/"
+SERVER_RESP_SIZE = CHUNK_SIZE
+DGRAM_SIZE = IP_SIZE + PORT_SIZE + FLAG_SIZE + CHUNK_SIZE
 
 
-def initialize_socket():
-    client_socket = socket(AF_INET, SOCK_STREAM)
-    client_socket.connect((hostIP,portNumber))
-    return client_socket
+
+def string_to_bytes(msg, num_bytes):
+    padded_msg = msg.ljust(num_bytes)
+    return padded_msg.encode(encoding="ascii")
+
+def int_to_bytes(number, num_bytes):
+    return (number).to_bytes(num_bytes,byteorder="little")
 
 
-def send_file_size(file_name):
-    client_socket = initialize_socket()
+def make_header(host_ip, host_port, flag):
+    ip = string_to_bytes(host_ip, IP_SIZE)
+    port = int_to_bytes(host_port, PORT_SIZE)
+    flag = int_to_bytes(flag, FLAG_SIZE)
+    print("host ip:", ip)
+    print("host port:", int.from_bytes(port, byteorder="little"))
+    print("host flag:", int.from_bytes(flag, byteorder="little"))
+    return ip + port + flag
+
+
+def first_packet_datagram(file_name, host_ip, host_port):
     file_size = os.path.getsize(file_name);
-    file_size_bytes = (file_size).to_bytes(HEADER_SIZE,byteorder="little")
-    client_socket.send(file_size_bytes)
-    result = client_socket.recv(SERVER_RESP_SIZE)
-    print("File size response: {0}".format(result.decode(encoding="ascii")))
-    client_socket.close()
+    file_size_bytes = int_to_bytes(file_size, FIRST_SEG_SIZE)
+    header = make_header(host_ip, host_port, 1)
+    return header + file_size_bytes
 
-def send_file_name(file_name):
-    client_socket = initialize_socket()
-    correct_size_file_name = file_name.ljust(FILE_NAME_SIZE)
-    file_name_bytes = correct_size_file_name.encode(encoding="ascii")
-    client_socket.send(file_name_bytes)
-    result = client_socket.recv(SERVER_RESP_SIZE)
-    print("File name response: {0}".format(result.decode(encoding="ascii")))
-    client_socket.close()
 
-def send_file(file_name):
-    chunk_num = 1
-    with open(file_name, 'rb') as f:
-        data = f.read(CHUNK_SIZE)
-        while data:
-            client_socket = initialize_socket()
-            client_socket.send(data)
-            result = client_socket.recv(SERVER_RESP_SIZE)
-            client_socket.close()
-            print("File chunk {0}: {1}".format(chunk_num, result.decode(encoding="ascii")))
-            chunk_num += 1
-            data = f.read(CHUNK_SIZE)
+def second_packet_datagram(file_name, host_ip, host_port):
+    file_name_bytes = string_to_bytes(file_name, SECOND_SEG_SIZE)
+    header = make_header(host_ip, host_port, 2)
+    return header + file_name_bytes
 
-    client_socket = initialize_socket()
-    client_socket.send("".encode(encoding="ascii"))
-    client_socket.close()
-    print("Successfully transferred file")
+
+def generic_packet_datagram(data, host_ip, host_port):
+    header = make_header(host_ip, host_port, 3)
+    return header + data
+
+
+def send_packet(s, host, port, data):
+    print("\nSending: ", data)
+    s.sendto(data, (host, port))
+    return s.recv(DGRAM_SIZE)
 
 
 ############################## Begin script execution ##############################
 
 
 # Get the input arguments from the commandline call
-hostIP = sys.argv[1]        # Server IP address
-portNumber = int(sys.argv[2])    # Server port number
-file_name = sys.argv[3]      # Relative path to the file to send
+remote_ip = sys.argv[1]                 # Server IP address
+remote_port_number = int(sys.argv[2])   # Server port number
+troll_port = int(sys.argv[3])           # Troll port number
+file_name = sys.argv[4]                 # Relative path to the file to send
 
-send_file_size(file_name)
-send_file_name(file_name)
-send_file(file_name)
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # UDP uses Datagram, but not stream
+# s.bind()
+
+datagram = first_packet_datagram(file_name, remote_ip, troll_port)
+response = send_packet(s, remote_ip, remote_port_number, datagram)
+# print("Segment 1 response flag: ", int.from_bytes(flag, byteorder="little"))
+time.sleep(0.2)
+
+datagram = second_packet_datagram(file_name, remote_ip, troll_port)
+response = send_packet(s, remote_ip, remote_port_number, datagram)
+# print("Segment 2 response flag: ", int.from_bytes(flag, byteorder="little"))
+time.sleep(0.2)
+
+chunk_num = 1
+with open(file_name, 'rb') as f:
+    data = f.read(CHUNK_SIZE)
+    while data:
+        datagram = generic_packet_datagram(data, remote_ip, remote_port_number)
+        response = send_packet(s, remote_ip, remote_port_number, datagram)
+        print("Response: ", response)
+        chunk_num += 1
+        data = f.read(CHUNK_SIZE)
+        time.sleep(0.2)
+s.close()
+
+print("Finished UPD file transfer")

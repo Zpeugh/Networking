@@ -1,9 +1,13 @@
-CSE 3461: Lab 2
+CSE 3461: Lab 3
+Author: Zach Peugh
+Date: 10/10/2016
 
 This lab implements a simple client-server interface
 in which a use can spin up a server on a specific port
-and then use another machine to send a file through a TCP
-socket to the server where it will be written to disk.
+and then use another machine to send a file through a UPD
+socket to the server where it will be written to disk. It uses
+the 'troll' executable as a middleman in order to make sure
+that the UPD message gets sent without dropping packets.
 
 The server-side file is "ftps.py" and can be run using the command:
 

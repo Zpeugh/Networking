@@ -1,89 +1,79 @@
 '''
-    CSE 3461: Lab 2
+    CSE 3461: Lab 3
     Author: Zach Peugh
-    Date: 9/14/2016
-    Description: Server script which opens a socket on the given
-                 port then receives a file chunk by chunk,
-                 writing that file to an output directory
+    Date: 10/10/2016
+    Description: Server script which opens a UPD socket on the
+                 given port then receives a file chunk by chunk,
+                 writing that file to an output directory.
 '''
 
-from socket import *
+import socket
 import sys
 import os
 import math
 
 
 ##############################   Global variables  ##############################
-CHUNK_SIZE = 1000       # The size in bytes of chunks of file to receive at a time
-HEADER_SIZE = 4         # The size in bytes of the file size integer
-FILE_NAME_SIZE = 20     # The size in bytes of the file name string
-SERVER_RESP_SIZE = 12   # The size in bytes of the server response
-OUTPUT_DIR = "output/"
-
+FIRST_SEG_SIZE = 4              # The size in bytes of the file size integer
+SECOND_SEG_SIZE = 20            # The size in bytes of the file name string
+IP_SIZE = 8                     # The size in bytes of the IP server host name
+PORT_SIZE = 2                   # The size in bytes of the server port number
+FLAG_SIZE = 1                   # The size in bytes of the flag
+CHUNK_SIZE = 1000               # The size in bytes of chunks of file to receive at a time
+SERVER_RESP_SIZE = CHUNK_SIZE   # The size in bytes of the server resposne
+OUTPUT_DIR = "output/"          # The directory to store received files.
+DGRAM_SIZE = IP_SIZE + PORT_SIZE + FLAG_SIZE + CHUNK_SIZE
 
 #################################   Functions   #################################
 
-def open_socket(port_number):
-    serverSocket = socket(AF_INET,SOCK_STREAM)
-    serverSocket.bind(('',port_number))
-    serverSocket.listen(1)
-    print('The server is ready to receive')
-    return serverSocket
-
-
-def receive_file_size(serverSocket):
-    connectionSocket, addr = serverSocket.accept()
-    file_size_bytes = connectionSocket.recv(HEADER_SIZE)
-    file_size = int.from_bytes(file_size_bytes, byteorder="little")
-    print("Expected file length: {0}".format(file_size))
-    connectionSocket.send("success".encode(encoding="ascii"))
-    return file_size
-
-
-def receive_file_name(serverSocket):
-    connectionSocket, addr = serverSocket.accept()
-    file_name_bytes = connectionSocket.recv(FILE_NAME_SIZE)
-    file_name = file_name_bytes.decode(encoding="ascii")
-    print("File name: {0}".format(file_name))
-    connectionSocket.send("success".encode(encoding="ascii"))
-    return file_name.strip()
-
-
-def receive_file(serverSocket,file_size):
-    chunk_num = 1       # Initialize a counter for screen output
-    byte_array = b""    # Initialize a byte to append the file data stream to
-    EOF = "".encode(encoding="ascii")   # arbitrarily chosen end of file marker
-
-    while True:
-        connectionSocket, addr = serverSocket.accept()
-        data = connectionSocket.recv(CHUNK_SIZE)
-        connectionSocket.send("success".encode(encoding="ascii"))
-
-        if data == EOF:
-            print("Finished receiving file, closing socket")
-            connectionSocket.close()
-            return byte_array
-        else:
-            byte_array += data
-            print("{0}/{1} chunks received".format(chunk_num, math.ceil(file_size/CHUNK_SIZE)))
-            chunk_num += 1
-
-def write_file(file_name, file_data):
-    # check if the output directory exists, create it if it does not
-    if not os.path.exists(OUTPUT_DIR):
-        os.mkdir(OUTPUT_DIR)
-    out_file = open(OUTPUT_DIR + file_name, 'wb')
-    out_file.write(file_data)
-    out_file.close()
+def parse_datagram(payload):
+    cli_ip = payload[0:IP_SIZE+1].decode(encoding="ascii")
+    cli_port = int.from_bytes(payload[IP_SIZE+1:IP_SIZE+PORT_SIZE+1], byteorder="little")
+    cli_flag = int.from_bytes(payload[IP_SIZE+PORT_SIZE+1:IP_SIZE+PORT_SIZE+FLAG_SIZE+1], byteorder="little")
+    print("\n\n############ NEXT SEGMENT ###########")
+    print("client ip:", cli_ip)
+    print("client port:", cli_port)
+    print("client flag:", cli_flag)
+    data = payload[IP_SIZE+PORT_SIZE+FLAG_SIZE+1:-1]
+    return cli_ip, cli_port, cli_flag, data
 
 
 ###############################   Script Execution   ###############################
 
 port_number = int(sys.argv[1])              # Get port number from commandline
+clientSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+clientSocket.bind(('',port_number))
 
-serverSocket = open_socket(port_number)
+print("Waiting for UPD packets")
+file_name = ""
+out_file = ""
+file_size = 0
+bytes_recieved = -1
 
-file_size = receive_file_size(serverSocket)
-file_name = receive_file_name(serverSocket)
-file_bytes = receive_file(serverSocket, file_size)
-write_file(file_name, file_bytes)
+while bytes_recieved < file_size:
+    payload, addr = clientSocket.recvfrom(DGRAM_SIZE)
+    ip, port, flag, data = parse_datagram(payload)
+
+    if flag == 1:
+        file_size = int.from_bytes(data, byteorder="little")
+        print("File size:", file_size)
+
+    elif flag == 2:
+        file_name = data.decode(encoding="ascii")
+        if not os.path.exists(OUTPUT_DIR):
+            os.mkdir(OUTPUT_DIR)
+        print("Creating file: ", file_name)
+        out_file = open(OUTPUT_DIR + file_name, 'wb')
+
+    elif flag == 3:
+        if out_file != "" and file_size != 0:
+            bytes_recieved += sys.getsizeof(data)
+            print("{0}/{1} bytes received".format(bytes_recieved,file_size))
+            out_file.write(data)
+    else:
+        print("ERROR: Invalid flag")
+
+    clientSocket.sendto(payload, addr)
+
+out_file.close()
+clientSocket.close()
