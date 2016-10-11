@@ -1,10 +1,11 @@
 '''
-    CSE 3461: Lab 2
+    CSE 3461: Lab 3
     Author: Zach Peugh
     Date: 10/10/2016
     Description: Client script which connects to a socket of a
                  given host on a specific port, and then transfers
-                 the file via UPD protocol to the server directory.
+                 the file via UPD protocol through troll to the
+                 server directory.
 '''
 
 import socket
@@ -14,13 +15,13 @@ import time
 
 FIRST_SEG_SIZE = 4      # The size in bytes of the file size integer
 SECOND_SEG_SIZE = 20    # The size in bytes of the file name string
-IP_SIZE = 8             # The size in bytes of the IP server host name
+IP_SIZE = 4             # The size in bytes of the IP server host name
 PORT_SIZE = 2           # The size in bytes of the server port number
 FLAG_SIZE = 1           # The size in bytes of the flag
 CHUNK_SIZE = 1000       # The size in bytes of chunks of file to receive at a time
+CLIENT_PORT = 1567      # Arbitrarily chosen client port number to bind to
 SERVER_RESP_SIZE = CHUNK_SIZE
 DGRAM_SIZE = IP_SIZE + PORT_SIZE + FLAG_SIZE + CHUNK_SIZE
-
 
 
 def string_to_bytes(msg, num_bytes):
@@ -35,9 +36,9 @@ def make_header(host_ip, host_port, flag):
     ip = string_to_bytes(host_ip, IP_SIZE)
     port = int_to_bytes(host_port, PORT_SIZE)
     flag = int_to_bytes(flag, FLAG_SIZE)
-    print("host ip:", ip)
-    print("host port:", int.from_bytes(port, byteorder="little"))
-    print("host flag:", int.from_bytes(flag, byteorder="little"))
+    #print("host ip:", ip)
+    #print("host port:", int.from_bytes(port, byteorder="little"))
+    #print("host flag:", int.from_bytes(flag, byteorder="little"))
     return ip + port + flag
 
 
@@ -60,7 +61,7 @@ def generic_packet_datagram(data, host_ip, host_port):
 
 
 def send_packet(s, host, port, data):
-    print("\nSending: ", data)
+    #print("\nSending: ", data)
     s.sendto(data, (host, port))
     return s.recv(DGRAM_SIZE)
 
@@ -74,29 +75,31 @@ remote_port_number = int(sys.argv[2])   # Server port number
 troll_port = int(sys.argv[3])           # Troll port number
 file_name = sys.argv[4]                 # Relative path to the file to send
 
+
+print("Troll port: ", troll_port)
+print("Client port: ", CLIENT_PORT)
+print("server address: {0}:{1}".format(remote_ip, remote_port_number))
+
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # UDP uses Datagram, but not stream
-# s.bind()
+s.bind(('', 1567))
 
 datagram = first_packet_datagram(file_name, remote_ip, troll_port)
-response = send_packet(s, remote_ip, remote_port_number, datagram)
-# print("Segment 1 response flag: ", int.from_bytes(flag, byteorder="little"))
-time.sleep(0.2)
+response = send_packet(s, remote_ip, troll_port, datagram)
+time.sleep(0.0015)
 
 datagram = second_packet_datagram(file_name, remote_ip, troll_port)
-response = send_packet(s, remote_ip, remote_port_number, datagram)
-# print("Segment 2 response flag: ", int.from_bytes(flag, byteorder="little"))
-time.sleep(0.2)
+response = send_packet(s, remote_ip, troll_port, datagram)
+time.sleep(0.0015)
 
 chunk_num = 1
 with open(file_name, 'rb') as f:
     data = f.read(CHUNK_SIZE)
     while data:
         datagram = generic_packet_datagram(data, remote_ip, remote_port_number)
-        response = send_packet(s, remote_ip, remote_port_number, datagram)
-        print("Response: ", response)
+        response = send_packet(s, remote_ip, troll_port, datagram)
         chunk_num += 1
         data = f.read(CHUNK_SIZE)
-        time.sleep(0.2)
+        time.sleep(0.0015)
 s.close()
 
 print("Finished UPD file transfer")

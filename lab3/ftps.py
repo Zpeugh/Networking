@@ -12,11 +12,10 @@ import sys
 import os
 import math
 
-
 ##############################   Global variables  ##############################
 FIRST_SEG_SIZE = 4              # The size in bytes of the file size integer
 SECOND_SEG_SIZE = 20            # The size in bytes of the file name string
-IP_SIZE = 8                     # The size in bytes of the IP server host name
+IP_SIZE = 4                     # The size in bytes of the IP server host name
 PORT_SIZE = 2                   # The size in bytes of the server port number
 FLAG_SIZE = 1                   # The size in bytes of the flag
 CHUNK_SIZE = 1000               # The size in bytes of chunks of file to receive at a time
@@ -27,14 +26,14 @@ DGRAM_SIZE = IP_SIZE + PORT_SIZE + FLAG_SIZE + CHUNK_SIZE
 #################################   Functions   #################################
 
 def parse_datagram(payload):
-    cli_ip = payload[0:IP_SIZE+1].decode(encoding="ascii")
-    cli_port = int.from_bytes(payload[IP_SIZE+1:IP_SIZE+PORT_SIZE+1], byteorder="little")
-    cli_flag = int.from_bytes(payload[IP_SIZE+PORT_SIZE+1:IP_SIZE+PORT_SIZE+FLAG_SIZE+1], byteorder="little")
-    print("\n\n############ NEXT SEGMENT ###########")
-    print("client ip:", cli_ip)
-    print("client port:", cli_port)
-    print("client flag:", cli_flag)
-    data = payload[IP_SIZE+PORT_SIZE+FLAG_SIZE+1:-1]
+    cli_ip = payload[0:IP_SIZE].decode(encoding="ascii")
+    cli_port = int.from_bytes(payload[IP_SIZE:IP_SIZE+PORT_SIZE], byteorder="little")
+    cli_flag = int.from_bytes(payload[IP_SIZE+PORT_SIZE:IP_SIZE+PORT_SIZE+FLAG_SIZE], byteorder="little")
+    #print("\n\n############ NEXT SEGMENT ###########")
+    #print("client ip:", cli_ip)
+    #print("client port:", cli_port)
+    #print("client flag:", cli_flag)
+    data = payload[IP_SIZE+PORT_SIZE+FLAG_SIZE:]
     return cli_ip, cli_port, cli_flag, data
 
 
@@ -47,10 +46,10 @@ clientSocket.bind(('',port_number))
 print("Waiting for UPD packets")
 file_name = ""
 out_file = ""
-file_size = 0
-bytes_recieved = -1
+file_size = 1
+bytes_received = 0
 
-while bytes_recieved < file_size:
+while True:
     payload, addr = clientSocket.recvfrom(DGRAM_SIZE)
     ip, port, flag, data = parse_datagram(payload)
 
@@ -59,7 +58,7 @@ while bytes_recieved < file_size:
         print("File size:", file_size)
 
     elif flag == 2:
-        file_name = data.decode(encoding="ascii")
+        file_name = data.decode(encoding="ascii").strip()
         if not os.path.exists(OUTPUT_DIR):
             os.mkdir(OUTPUT_DIR)
         print("Creating file: ", file_name)
@@ -67,8 +66,8 @@ while bytes_recieved < file_size:
 
     elif flag == 3:
         if out_file != "" and file_size != 0:
-            bytes_recieved += sys.getsizeof(data)
-            print("{0}/{1} bytes received".format(bytes_recieved,file_size))
+            bytes_received += sys.getsizeof(data)
+            print("{0}/{1} bytes received".format(bytes_received,file_size))
             out_file.write(data)
     else:
         print("ERROR: Invalid flag")
